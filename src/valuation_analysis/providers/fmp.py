@@ -268,6 +268,46 @@ class FmpProvider:
             and (close := self._pick_value(record, ["close"])) is not None
         }
         sorted_price_dates = sorted(price_by_date.keys())
+        calculated_ps_ratio_checks: list[float] = []
+        for index in range(3, len(quarter_records)):
+            period_end, _, _, diluted_shares = quarter_records[index]
+            revenue_window = [
+                revenue_value
+                for _, _, revenue_value, _ in quarter_records[index - 3 : index + 1]
+                if revenue_value is not None and revenue_value > 0
+            ]
+            revenue_ttm = sum(revenue_window) if len(revenue_window) == 4 else None
+            matched_date = self._find_price_date_on_or_before(period_end, sorted_price_dates)
+            price = price_by_date.get(matched_date) if matched_date is not None else None
+            ratio_record = quarterly_ratios_by_date.get(period_end)
+            if ratio_record is None:
+                ratio_record = self._find_nearest_ratio_record(period_end, annual_ratios_by_date)
+            ratio_price_to_sales = self._pick_value(ratio_record, ["priceToSalesRatio"])
+            calculated_price_to_sales = (
+                (price * diluted_shares) / revenue_ttm
+                if price is not None
+                and diluted_shares is not None
+                and diluted_shares > 0
+                and revenue_ttm is not None
+                and revenue_ttm > 0
+                else None
+            )
+            if (
+                ratio_price_to_sales is not None
+                and ratio_price_to_sales > 0
+                and calculated_price_to_sales is not None
+                and calculated_price_to_sales > 0
+            ):
+                calculated_ps_ratio_checks.append(
+                    calculated_price_to_sales / ratio_price_to_sales
+                )
+        calculated_ps_mismatched = False
+        if len(calculated_ps_ratio_checks) >= 3:
+            median_ps_ratio = self._median(calculated_ps_ratio_checks)
+            calculated_ps_mismatched = (
+                median_ps_ratio is not None
+                and (median_ps_ratio < 0.5 or median_ps_ratio > 2.0)
+            )
 
         points: list[ValuationHistoryPoint] = []
         for index in range(3, len(quarter_records)):
@@ -298,7 +338,11 @@ class FmpProvider:
                 and revenue_ttm > 0
                 else None
             )
-            price_to_sales = calculated_price_to_sales or ratio_price_to_sales
+            price_to_sales = (
+                ratio_price_to_sales
+                if calculated_ps_mismatched
+                else calculated_price_to_sales or ratio_price_to_sales
+            )
             enterprise_to_ebitda = self._pick_value(
                 ratio_record,
                 ["enterpriseValueMultiple", "evToEBITDA", "enterpriseToEbitda"],
@@ -763,7 +807,7 @@ class FmpProvider:
                     "date": event_date,
                     "eps_estimate": estimate,
                     "reported_eps": reported,
-                    "reported_eps_label": "实际 EPS（FMP口径）",
+                    "reported_eps_label": "实际 EPS（数据源口径）",
                     "surprise_pct": surprise_pct,
                     "status": status,
                 }

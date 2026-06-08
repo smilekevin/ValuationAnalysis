@@ -60,7 +60,7 @@ class ValuationService:
             enrich_market_with_valuation_history(market, valuation_history)
 
             if progress_callback:
-                progress_callback("正在抓取 FMP 季度财务报表。", "progress")
+                progress_callback("正在抓取季度财务报表。", "progress")
             financial_history = self.provider.get_financial_history(symbol)
 
             if progress_callback:

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>美股估值分析器</title>
-    <link rel="stylesheet" href="/static/styles.css?v=16" />
+    <link rel="stylesheet" href="/static/styles.css?v=17" />
   </head>
   <body>
     <div class="page-shell">
@@ -32,8 +32,18 @@
             <span>同行数量</span>
             <input id="peer-count-input" name="peerCount" type="number" min="1" max="8" value="5" />
           </label>
+          <label class="field">
+            <span>访问 Token</span>
+            <input
+              id="access-token-input"
+              name="accessToken"
+              type="password"
+              placeholder="部署到公网时填写"
+              autocomplete="current-password"
+            />
+          </label>
           <button type="submit" class="primary-button">生成分析</button>
-          <p class="form-hint">当前直接调用 FMP 主数据源，适合继续扩展历史估值分位与 DCF 分析。</p>
+          <p class="form-hint">Token 只用于访问本服务；留空时适合本地开发，公网部署建议在后端启用校验。</p>
         </form>
       </header>
 
@@ -186,7 +196,7 @@
         <section class="card table-card financial-card">
             <div class="card-header">
               <p class="card-kicker">历史财务</p>
-              <h2>FMP 季度财报摘要</h2>
+              <h2>季度财报摘要</h2>
             </div>
             <div id="financial-trend-summary" class="financial-trend-summary">
               <p class="empty-state">分析后会显示最新季度的收入与盈利趋势。</p>
@@ -230,6 +240,6 @@
       </main>
     </div>
 
-    <script src="/static/app.js?v=16"></script>
+    <script src="/static/app.js?v=17"></script>
   </body>
 </html>

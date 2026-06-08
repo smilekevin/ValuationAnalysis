@@ -1,6 +1,7 @@
 const form = document.getElementById("search-form");
 const symbolInput = document.getElementById("symbol-input");
 const peerCountInput = document.getElementById("peer-count-input");
+const accessTokenInput = document.getElementById("access-token-input");
 const statusLogCard = document.getElementById("status-log-card");
 const statusBanner = document.getElementById("status-banner");
 const statusLogToggle = document.getElementById("status-log-toggle");
@@ -31,6 +32,7 @@ const logOutput = document.getElementById("log-output");
 let activeEventSource = null;
 let activeValuationMetric = "trailing_pe";
 let latestValuationHistorySnapshot = null;
+const ACCESS_TOKEN_STORAGE_KEY = "valuation_analysis_access_token";
 
 const VALUATION_HISTORY_METRICS = {
   trailing_pe: {
@@ -78,6 +80,21 @@ const PRICE_SIMULATION_PE_MAX = 100;
 
 function syncStatusToggleLabel() {
   statusLogToggle.textContent = statusLogCard.open ? "收起日志" : "展开日志";
+}
+
+function loadStoredAccessToken() {
+  const storedToken = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  if (storedToken) {
+    accessTokenInput.value = storedToken;
+  }
+}
+
+function persistAccessToken(token) {
+  if (token) {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+  } else {
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  }
 }
 
 function formatNumber(value, digits = 2) {
@@ -719,7 +736,7 @@ function renderFinancials(periods, currency) {
   if (yoyCoverage <= 1 && periods.length <= 5) {
     financialTrendSummary.innerHTML += `
       <p class="financial-trend-note">
-        当前 FMP 返回的季度历史仍然较短，因此同比数据可能只覆盖最新季度；其余季度可优先参考环比变化判断短期经营趋势。
+        当前数据源返回的季度历史仍然较短，因此同比数据可能只覆盖最新季度；其余季度可优先参考环比变化判断短期经营趋势。
       </p>
     `;
   }
@@ -826,6 +843,7 @@ async function handleSubmit(event) {
   event.preventDefault();
   const symbol = symbolInput.value.trim().toUpperCase();
   const peerCount = Number(peerCountInput.value || 5);
+  const accessToken = accessTokenInput.value.trim();
 
   if (!symbol) {
     setStatus("请输入有效的股票代码。", "error");
@@ -834,6 +852,7 @@ async function handleSubmit(event) {
   }
 
   submitButton.disabled = true;
+  persistAccessToken(accessToken);
   clearLogs();
   setStatus(`正在分析 ${symbol}，这会拉取最新市场与财务数据。`, "loading");
   appendLog(`已提交 ${symbol} 的分析请求。`, "start", new Date().toLocaleTimeString("zh-CN", { hour12: false }));
@@ -842,8 +861,12 @@ async function handleSubmit(event) {
     activeEventSource.close();
   }
 
+  const streamParams = new URLSearchParams({ peer_count: String(peerCount) });
+  if (accessToken) {
+    streamParams.set("access_token", accessToken);
+  }
   activeEventSource = new EventSource(
-    `/analyze-stream/${encodeURIComponent(symbol)}?peer_count=${peerCount}`
+    `/analyze-stream/${encodeURIComponent(symbol)}?${streamParams.toString()}`
   );
 
   activeEventSource.addEventListener("log", (event) => {
@@ -882,11 +905,11 @@ async function handleSubmit(event) {
 
   activeEventSource.onerror = () => {
     appendLog(
-      "实时日志连接中断，请检查服务是否仍在运行，然后刷新页面重试。",
+      "实时日志连接中断，请检查服务是否仍在运行；如果已启用访问 Token，请确认 Token 正确。",
       "error",
       new Date().toLocaleTimeString("zh-CN", { hour12: false })
     );
-    setStatus("实时日志连接中断，请检查服务状态。", "error");
+    setStatus("实时日志连接中断，请检查服务状态或访问 Token。", "error");
     submitButton.disabled = false;
     if (activeEventSource) {
       activeEventSource.close();
@@ -905,4 +928,5 @@ async function handleSubmit(event) {
 
 form.addEventListener("submit", handleSubmit);
 statusLogCard.addEventListener("toggle", syncStatusToggleLabel);
+loadStoredAccessToken();
 syncStatusToggleLabel();

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     fmp_cache_enabled: bool = False
     fmp_cache_ttl_seconds: int = 43200
     fmp_peers_cache_ttl_seconds: int = 86400
+    app_access_token: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

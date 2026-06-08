@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,7 @@ import threading
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,10 +44,29 @@ def _sse_payload(event: str, payload: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(jsonable_encoder(payload), ensure_ascii=False)}\n\n"
 
 
+def _validate_access_token(
+    authorization: str | None = Header(default=None),
+    access_token: str | None = Query(default=None),
+) -> None:
+    expected_token = settings.app_access_token.strip()
+    if not expected_token:
+        return
+
+    provided_token = access_token
+    if authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer" and value:
+            provided_token = value.strip()
+
+    if not provided_token or not hmac.compare_digest(provided_token, expected_token):
+        raise HTTPException(status_code=401, detail="invalid or missing access token")
+
+
 @app.get("/analyze/{symbol}")
 def analyze_company(
     symbol: str,
     peer_count: int = Query(default=5, ge=1, le=8),
+    _: None = Depends(_validate_access_token),
 ) -> dict:
     try:
         analysis = valuation_service.analyze_company(symbol=symbol.upper(), peer_count=peer_count)
@@ -59,6 +79,7 @@ def analyze_company(
 async def analyze_company_stream(
     symbol: str,
     peer_count: int = Query(default=5, ge=1, le=8),
+    _: None = Depends(_validate_access_token),
 ) -> StreamingResponse:
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()

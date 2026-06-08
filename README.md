@@ -101,6 +101,14 @@ python3 scripts/build_sec_sic_index.py
 其中 `/` 是网页分析器首页，支持输入股票代码后直接调用后端 API 渲染估值结果。
 首页现在也会通过流式接口展示抓取进度日志，例如公司资料、市场数据、历史财务、未来预期和同行比较正在执行到哪一步。
 
+如果要把服务放到公网，建议在 `.env` 里设置访问 token：
+
+```bash
+APP_ACCESS_TOKEN=change_me_to_a_long_random_token
+```
+
+设置后，`/analyze/{symbol}` 和 `/analyze-stream/{symbol}` 会要求 token。网页上的“访问 Token”输入框会把 token 发给后端校验；未设置 `APP_ACCESS_TOKEN` 时本地开发不需要填写。
+
 如果你没有先执行 `pip install -e .`，也可以直接用 `--app-dir src` 启动。因为这个项目使用的是 `src/` 目录布局，直接运行 `uvicorn valuation_analysis.api:app` 时，Python 默认不会自动把 `src` 加进模块搜索路径。
 
 ## 输出内容
