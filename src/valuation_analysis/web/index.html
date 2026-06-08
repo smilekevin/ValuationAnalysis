@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>美股估值分析器</title>
+    <link rel="stylesheet" href="/static/styles.css?v=16" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">US Equity Valuation Workbench</p>
+          <h1>美股估值分析</h1>
+          <p class="hero-text">
+            输入股票代码，查看公司画像、估值倍数、历史财报执行力与同行相对定价。
+          </p>
+        </div>
+        <form id="search-form" class="search-panel">
+          <label class="field">
+            <span>股票代码</span>
+            <input
+              id="symbol-input"
+              name="symbol"
+              type="text"
+              placeholder="例如 AAPL / MSFT / NVDA"
+              maxlength="10"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field field-small">
+            <span>同行数量</span>
+            <input id="peer-count-input" name="peerCount" type="number" min="1" max="8" value="5" />
+          </label>
+          <button type="submit" class="primary-button">生成分析</button>
+          <p class="form-hint">当前直接调用 FMP 主数据源，适合继续扩展历史估值分位与 DCF 分析。</p>
+        </form>
+      </header>
+
+      <main class="dashboard">
+        <details id="status-log-card" class="card status-log-card">
+          <summary class="status-log-summary">
+            <div class="status-log-heading">
+              <p class="card-kicker">分析状态</p>
+              <p id="status-banner" class="status-banner" aria-live="polite">输入代码后开始分析。</p>
+            </div>
+            <span id="status-log-toggle" class="status-log-toggle">展开日志</span>
+          </summary>
+          <div class="status-log-body">
+            <div id="log-output" class="log-output">
+              <p class="log-entry empty-log">输入股票代码并点击“生成分析”后，这里会显示实时抓取日志和错误信息。</p>
+            </div>
+          </div>
+        </details>
+
+        <section class="grid top-grid">
+          <article class="card profile-card">
+            <div class="card-header">
+              <p class="card-kicker">公司画像</p>
+              <h2 id="company-name">等待分析</h2>
+            </div>
+            <div class="profile-meta">
+              <div>
+                <span>代码</span>
+                <strong id="company-symbol">-</strong>
+              </div>
+              <div>
+                <span>行业</span>
+                <strong id="company-industry">-</strong>
+              </div>
+              <div>
+                <span>板块</span>
+                <strong id="company-sector">-</strong>
+              </div>
+              <div>
+                <span>市值</span>
+                <strong id="company-market-cap">-</strong>
+              </div>
+            </div>
+            <div class="assessment-panel">
+              <span class="badge" id="assessment-label">No Analysis</span>
+              <p id="assessment-summary">分析结果会在这里出现。</p>
+            </div>
+          </article>
+
+          <article class="card score-card">
+            <div class="card-header">
+              <p class="card-kicker">综合评分</p>
+              <h2>估值框架</h2>
+            </div>
+            <div class="score-list">
+              <div class="score-item">
+                <span>估值</span>
+                <strong id="valuation-score">-</strong>
+              </div>
+              <div class="score-item">
+                <span>执行</span>
+                <strong id="execution-score">-</strong>
+              </div>
+              <div class="score-item">
+                <span>成长</span>
+                <strong id="growth-score">-</strong>
+              </div>
+            </div>
+            <ul id="assessment-rationale" class="rationale-list"></ul>
+          </article>
+        </section>
+
+        <section class="grid simulation-grid">
+          <article class="card price-simulation-card">
+            <div id="price-simulation" class="price-simulation empty-state">
+              分析后会基于明年 EPS 和历史 P/E 给出情景价格。
+            </div>
+          </article>
+        </section>
+
+        <section class="grid metric-grid">
+          <article class="card">
+            <div class="card-header">
+              <p class="card-kicker">市场快照</p>
+              <h2>估值倍数</h2>
+            </div>
+            <div class="metric-list metric-list-two-columns" id="market-metrics"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <p class="card-kicker">未来预期</p>
+              <h2>增长与盈利</h2>
+            </div>
+            <div class="metric-list" id="forecast-metrics"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-header">
+              <p class="card-kicker">财报达成率</p>
+              <h2>执行稳定性</h2>
+            </div>
+            <div class="metric-list" id="earnings-metrics"></div>
+          </article>
+        </section>
+
+        <section class="card valuation-history-card">
+          <div class="card-header">
+            <p class="card-kicker">历史估值</p>
+            <h2>历史估值曲线</h2>
+          </div>
+          <div id="valuation-history-summary" class="valuation-history-summary">
+            <p class="empty-state">分析后会显示当前估值在历史区间中的位置。</p>
+          </div>
+          <div id="valuation-history-chart" class="valuation-history-chart empty-state">
+            暂无历史估值曲线
+          </div>
+        </section>
+
+        <section class="grid lower-grid">
+          <article class="card table-card">
+            <div class="card-header">
+              <p class="card-kicker">同行比较</p>
+              <h2>同业估值横截面</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代码</th>
+                    <th>公司</th>
+                    <th>行业细分</th>
+                    <th>市值</th>
+                    <th>Forward P/E</th>
+                    <th>Trailing P/E</th>
+                    <th>PEG</th>
+                    <th>EPS 增长</th>
+                  </tr>
+                </thead>
+                <tbody id="peers-table-body">
+                  <tr>
+                    <td colspan="8" class="empty-cell">还没有同行数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="card table-card financial-card">
+            <div class="card-header">
+              <p class="card-kicker">历史财务</p>
+              <h2>FMP 季度财报摘要</h2>
+            </div>
+            <div id="financial-trend-summary" class="financial-trend-summary">
+              <p class="empty-state">分析后会显示最新季度的收入与盈利趋势。</p>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>期间</th>
+                    <th>收入</th>
+                    <th>收入环比</th>
+                    <th>收入同比</th>
+                    <th>GAAP稀释后每股收益</th>
+                    <th>EPS环比</th>
+                    <th>EPS同比</th>
+                    <th>净利润环比</th>
+                    <th>净利润同比</th>
+                  </tr>
+                </thead>
+                <tbody id="financial-table-body">
+                  <tr>
+                    <td colspan="9" class="empty-cell">还没有财务数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+        </section>
+
+        <section class="card timeline-card">
+          <div class="card-header">
+            <p class="card-kicker">近期财报事件</p>
+            <h2>EPS Surprise 轨迹</h2>
+          </div>
+          <p class="card-note">
+            这里的“实际 EPS”使用市场 surprise 口径，可能与上方财务表里的 GAAP 稀释后每股收益不完全一致。
+          </p>
+          <div id="earnings-events" class="event-list">
+            <p class="empty-state">还没有财报事件。</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js?v=16"></script>
+  </body>
+</html>

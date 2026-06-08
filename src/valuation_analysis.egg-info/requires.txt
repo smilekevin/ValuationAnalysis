@@ -1,0 +1,6 @@
+fastapi<1.0.0,>=0.115.0
+httpx<1.0.0,>=0.28.0
+pandas<3.0.0,>=2.2.0
+pydantic-settings<3.0.0,>=2.3.0
+uvicorn<1.0.0,>=0.30.0
+yfinance<1.0.0,>=0.2.54
