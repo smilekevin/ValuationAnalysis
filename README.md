@@ -26,7 +26,7 @@
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-cp .env.example .env
+cp env.example .env
 uvicorn --app-dir src valuation_analysis.api:app --reload
 ```
 
