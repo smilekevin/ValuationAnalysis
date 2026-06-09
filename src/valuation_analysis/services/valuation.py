@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
+from valuation_analysis.config import settings
 from valuation_analysis.models import (
     CompanyAnalysis,
     CompanyProfile,
@@ -40,37 +43,27 @@ class ValuationService:
         try:
             if progress_callback:
                 progress_callback(f"开始分析 {symbol}。", "start")
-                progress_callback("正在抓取公司基础资料。", "progress")
-            profile = self.provider.get_company_profile(symbol)
-
-            if progress_callback:
-                progress_callback("正在抓取最新市场价格与估值倍数。", "progress")
-            market = self.provider.get_market_snapshot(symbol)
-
-            if progress_callback:
                 progress_callback(
-                    f"正在抓取过去 {self.VALUATION_HISTORY_YEARS} 年以上历史估值曲线与分位。",
+                    f"正在并发抓取核心 FMP 数据，最大并发数 {self._max_data_workers()}。",
                     "progress",
                 )
-            valuation_history = self.provider.get_valuation_history(
+
+            (
+                profile,
+                market,
+                valuation_history,
+                forecast,
+                execution,
+            ) = self._fetch_core_data(symbol)
+
+            if progress_callback:
+                progress_callback("核心数据抓取完成，正在抓取季度财务报表。", "progress")
+            financial_history = self.provider.get_financial_history(
                 symbol,
-                years=self.VALUATION_HISTORY_YEARS,
+                execution=execution,
             )
+
             enrich_market_with_valuation_history(market, valuation_history)
-
-            if progress_callback:
-                progress_callback("正在抓取季度财务报表。", "progress")
-            financial_history = self.provider.get_financial_history(symbol)
-
-            if progress_callback:
-                progress_callback("正在抓取未来预期、增长与盈利数据。", "progress")
-            forecast = self.provider.get_forecast(symbol)
-            if progress_callback:
-                progress_callback("正在抓取历史财报 surprise、达成率与分析师事件数据。", "progress")
-            execution = self.provider.get_earnings_execution(
-                symbol,
-                limit=self.EARNINGS_EVENT_LIMIT,
-            )
             enrich_market_with_forecast(market, forecast)
             enrich_market_with_financial_history(market, financial_history, execution)
             self._enrich_valuation_history_snapshot(valuation_history, market)
@@ -111,6 +104,43 @@ class ValuationService:
             )
         finally:
             self.provider.set_progress_callback(None)
+
+    @staticmethod
+    def _max_data_workers() -> int:
+        return max(1, settings.fmp_max_workers)
+
+    def _fetch_core_data(
+        self,
+        symbol: str,
+    ) -> tuple[
+        CompanyProfile,
+        MarketSnapshot,
+        ValuationHistorySnapshot,
+        ForecastSnapshot,
+        EarningsExecutionMetrics,
+    ]:
+        with ThreadPoolExecutor(max_workers=self._max_data_workers()) as executor:
+            profile_future = executor.submit(self.provider.get_company_profile, symbol)
+            market_future = executor.submit(self.provider.get_market_snapshot, symbol)
+            valuation_history_future = executor.submit(
+                self.provider.get_valuation_history,
+                symbol,
+                self.VALUATION_HISTORY_YEARS,
+            )
+            forecast_future = executor.submit(self.provider.get_forecast, symbol)
+            execution_future = executor.submit(
+                self.provider.get_earnings_execution,
+                symbol,
+                self.EARNINGS_EVENT_LIMIT,
+            )
+
+            return (
+                profile_future.result(),
+                market_future.result(),
+                valuation_history_future.result(),
+                forecast_future.result(),
+                execution_future.result(),
+            )
 
     @staticmethod
     def _enrich_valuation_history_snapshot(

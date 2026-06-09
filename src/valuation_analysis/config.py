@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     port: int = 8000
     fmp_api_key: str = ""
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    fmp_max_workers: int = 4
     app_access_token: str = ""
 
     model_config = SettingsConfigDict(

@@ -204,34 +204,37 @@ class FmpProvider(MarketDataProvider):
                 )
             quarter_records = adjusted_quarter_records
 
-        try:
-            ratio_records = self._get_records(
-                "ratios",
-                {
-                    "symbol": symbol.upper(),
-                    "period": "quarter",
-                    "limit": quarter_limit,
-                },
-            )
-        except Exception:
-            ratio_records = []
-        if not ratio_records:
-            ratio_records = self._get_records(
-                "ratios",
-                {
-                    "symbol": symbol.upper(),
-                    "limit": max(years + 5, 15),
-                },
-            )
+        quarterly_ratio_records = self._get_records(
+            "ratios",
+            {
+                "symbol": symbol.upper(),
+                "period": "quarter",
+                "limit": quarter_limit,
+            },
+            optional_unavailable_message=(
+                "当前 FMP 套餐不支持季度 ratios，历史估值将跳过该补充端点，"
+                "并继续使用价格、财报和 EPS 数据计算 P/E、Forward P/E、P/S。"
+            ),
+        )
+        annual_ratio_records = self._get_records(
+            "ratios",
+            {
+                "symbol": symbol.upper(),
+                "limit": max(years + 5, 15),
+            },
+            optional_unavailable_message=(
+                "当前 FMP 套餐不支持年度 ratios，历史估值将继续使用可计算指标。"
+            ),
+        )
         quarterly_ratios_by_date = {
             ratio_date: record
-            for record in ratio_records
+            for record in quarterly_ratio_records
             if (ratio_date := _safe_date(record.get("date"))) is not None
             and str(record.get("period") or "").upper() != "FY"
         }
         annual_ratios_by_date = {
             ratio_date: record
-            for record in ratio_records
+            for record in annual_ratio_records
             if (ratio_date := _safe_date(record.get("date"))) is not None
             and str(record.get("period") or "").upper() == "FY"
         }
@@ -275,9 +278,7 @@ class FmpProvider(MarketDataProvider):
             revenue_ttm = sum(revenue_window) if len(revenue_window) == 4 else None
             matched_date = self._find_price_date_on_or_before(period_end, sorted_price_dates)
             price = price_by_date.get(matched_date) if matched_date is not None else None
-            ratio_record = quarterly_ratios_by_date.get(period_end)
-            if ratio_record is None:
-                ratio_record = self._find_nearest_ratio_record(period_end, annual_ratios_by_date)
+            ratio_record = quarterly_ratios_by_date.get(period_end, {})
             ratio_price_to_sales = self._pick_value(ratio_record, ["priceToSalesRatio"])
             calculated_price_to_sales = (
                 (price * diluted_shares) / revenue_ttm
@@ -322,9 +323,7 @@ class FmpProvider(MarketDataProvider):
             if price is None:
                 continue
 
-            ratio_record = quarterly_ratios_by_date.get(period_end)
-            if ratio_record is None:
-                ratio_record = self._find_nearest_ratio_record(period_end, annual_ratios_by_date)
+            ratio_record = quarterly_ratios_by_date.get(period_end, {})
             ratio_price_to_sales = self._pick_value(ratio_record, ["priceToSalesRatio"])
             calculated_price_to_sales = (
                 (price * diluted_shares) / revenue_ttm
@@ -351,6 +350,27 @@ class FmpProvider(MarketDataProvider):
                     date=period_end,
                     price=price,
                     price_to_sales=price_to_sales,
+                    enterprise_to_ebitda=enterprise_to_ebitda,
+                )
+            )
+
+        for period_end, ratio_record in annual_ratios_by_date.items():
+            if quarterly_ratios_by_date:
+                continue
+            matched_date = self._find_price_date_on_or_before(period_end, sorted_price_dates)
+            if matched_date is None:
+                continue
+            price = price_by_date.get(matched_date)
+            enterprise_to_ebitda = self._pick_value(
+                ratio_record,
+                ["enterpriseValueMultiple", "evToEBITDA", "enterpriseToEbitda"],
+            )
+            if price is None or enterprise_to_ebitda is None:
+                continue
+            points.append(
+                ValuationHistoryPoint(
+                    date=period_end,
+                    price=price,
                     enterprise_to_ebitda=enterprise_to_ebitda,
                 )
             )
@@ -418,6 +438,9 @@ class FmpProvider(MarketDataProvider):
                 "symbol": symbol.upper(),
                 "limit": max(years + 5, 15),
             },
+            optional_unavailable_message=(
+                "当前 FMP 套餐不支持年度 ratios，年度历史估值将继续使用可计算指标。"
+            ),
         )
         ratios_by_date = {
             ratio_date: record
@@ -664,7 +687,12 @@ class FmpProvider(MarketDataProvider):
         points.sort(key=lambda item: item[0])
         return points
 
-    def get_financial_history(self, symbol: str, limit: int = 12) -> list[FinancialPeriod]:
+    def get_financial_history(
+        self,
+        symbol: str,
+        limit: int = 12,
+        execution: EarningsExecutionMetrics | None = None,
+    ) -> list[FinancialPeriod]:
         if not self.enabled:
             return []
 
@@ -727,7 +755,12 @@ class FmpProvider(MarketDataProvider):
             periods.append(period)
 
         periods.sort(key=lambda period: period.period_end or date.min, reverse=True)
-        self._backfill_eps_from_earnings(symbol, periods, limit=max(limit, 12))
+        self._backfill_eps_from_earnings(
+            symbol,
+            periods,
+            limit=max(limit, 12),
+            execution=execution,
+        )
         self._apply_growth_rates(periods)
         return periods[:limit]
 
@@ -932,11 +965,13 @@ class FmpProvider(MarketDataProvider):
         symbol: str,
         periods: list[FinancialPeriod],
         limit: int = 12,
+        execution: EarningsExecutionMetrics | None = None,
     ) -> None:
         if not periods:
             return
 
-        execution = self.get_earnings_execution(symbol, limit=limit)
+        if execution is None:
+            execution = self.get_earnings_execution(symbol, limit=limit)
         events = [
             (
                 _safe_date(event.get("date")),
@@ -962,7 +997,12 @@ class FmpProvider(MarketDataProvider):
             if matched_eps is not None:
                 period.diluted_eps = matched_eps
 
-    def _get_records(self, endpoint: str, params: dict[str, object]) -> list[dict]:
+    def _get_records(
+        self,
+        endpoint: str,
+        params: dict[str, object],
+        optional_unavailable_message: str | None = None,
+    ) -> list[dict]:
         self._log(
             f"FMP 实时请求: {endpoint} {self._describe_params(params)}。",
             "progress",
@@ -977,6 +1017,10 @@ class FmpProvider(MarketDataProvider):
             response.raise_for_status()
             payload = response.json()
         except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if optional_unavailable_message is not None and status_code in {402, 403, 404}:
+                self._log(optional_unavailable_message, "warning")
+                return []
             self._log(
                 f"FMP realtime fetch failed: {endpoint} {self._describe_params(params)} -> {exc.__class__.__name__}: {exc}",
                 "warning",

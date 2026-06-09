@@ -42,12 +42,14 @@ HOST=127.0.0.1
 PORT=8000
 FMP_API_KEY=your_fmp_api_key
 FMP_BASE_URL=https://financialmodelingprep.com/stable
+FMP_MAX_WORKERS=4
 APP_ACCESS_TOKEN=
 ```
 
 `FMP_API_KEY` 是获取财务和估值数据所需的 key。`APP_ACCESS_TOKEN` 为空时不启用访问控制；如果要放到公网，建议设置一个足够长的随机 token。
 
 所有 FMP 数据都会实时查询，不再保留本地 API 缓存。
+`FMP_MAX_WORKERS` 控制单次分析中核心 FMP 请求的最大并发数，默认 4；如果遇到 FMP 限流，可以调低到 2。
 
 ## 本地启动
 
