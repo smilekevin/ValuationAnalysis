@@ -31,16 +31,12 @@ HOST=127.0.0.1
 PORT=8000
 FMP_API_KEY=your_fmp_api_key
 FMP_BASE_URL=https://financialmodelingprep.com/stable
-CACHE_DIR=.cache
-FMP_CACHE_ENABLED=false
-FMP_CACHE_TTL_SECONDS=43200
-FMP_PEERS_CACHE_TTL_SECONDS=86400
 APP_ACCESS_TOKEN=
 ```
 
 `FMP_API_KEY` 是获取财务和估值数据所需的 key。`APP_ACCESS_TOKEN` 为空时不启用访问控制；如果要放到公网，建议设置一个足够长的随机 token。
 
-本地缓存默认关闭。若设置 `FMP_CACHE_ENABLED=true`，FMP 响应会缓存到 `.cache/fmp_api/`。
+所有 FMP 数据都会实时查询，不再保留本地 API 缓存。
 
 ## 本地启动
 
@@ -105,7 +101,6 @@ docker build -t valuation-analysis .
 docker run \
   --env-file .env \
   -p 8000:8000 \
-  -v "$(pwd)/.cache:/app/.cache" \
   valuation-analysis
 ```
 

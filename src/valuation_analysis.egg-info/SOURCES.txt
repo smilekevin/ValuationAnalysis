@@ -2,7 +2,6 @@ README.md
 pyproject.toml
 src/valuation_analysis/__init__.py
 src/valuation_analysis/api.py
-src/valuation_analysis/cache_store.py
 src/valuation_analysis/cli.py
 src/valuation_analysis/config.py
 src/valuation_analysis/models.py
@@ -10,6 +9,7 @@ src/valuation_analysis/progress.py
 src/valuation_analysis.egg-info/PKG-INFO
 src/valuation_analysis.egg-info/SOURCES.txt
 src/valuation_analysis.egg-info/dependency_links.txt
+src/valuation_analysis.egg-info/entry_points.txt
 src/valuation_analysis.egg-info/requires.txt
 src/valuation_analysis.egg-info/top_level.txt
 src/valuation_analysis/providers/__init__.py

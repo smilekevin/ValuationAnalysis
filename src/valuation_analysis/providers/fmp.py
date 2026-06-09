@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-import json
-from pathlib import Path
 from bisect import bisect_right
 from statistics import mean
 
 import httpx
 
-from valuation_analysis.cache_store import FileCacheStore
 from valuation_analysis.config import settings
 from valuation_analysis.models import (
     CompanyProfile,
@@ -63,8 +60,6 @@ class FmpProvider(MarketDataProvider):
     def __init__(self) -> None:
         self.api_key = settings.fmp_api_key.strip()
         self.base_url = settings.fmp_base_url.rstrip("/")
-        cache_root = Path(__file__).resolve().parents[3] / settings.cache_root_path
-        self.cache = FileCacheStore(cache_root)
         self.progress_callback: ProgressCallback | None = None
 
     @property
@@ -890,42 +885,14 @@ class FmpProvider(MarketDataProvider):
 
         symbol = target_symbol.upper()
         params = {"symbol": symbol}
-        cache_key = self._cache_key("stock-peers", params)
-        payload: object | None = None
-
-        if settings.fmp_cache_enabled:
-            payload = self.cache.get_json(
-                "fmp_api",
-                cache_key,
-                settings.fmp_peers_cache_ttl_seconds,
-            )
-            if payload is not None:
-                self._log(f"FMP cache hit: stock-peers {symbol}", "progress")
-
-        if payload is None:
-            if settings.fmp_cache_enabled:
-                self._log(
-                    f"FMP cache miss: stock-peers {symbol}，正在请求实时数据。",
-                    "progress",
-                )
-            else:
-                self._log(
-                    f"FMP 实时请求: stock-peers {symbol}。",
-                    "progress",
-                )
-            response = httpx.get(
-                f"{self.base_url}/stock-peers",
-                params={**params, "apikey": self.api_key},
-                timeout=20.0,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if settings.fmp_cache_enabled:
-                self.cache.set_json("fmp_api", cache_key, payload)
-                self._log(
-                    f"FMP realtime fetch complete: stock-peers {symbol}，结果已写入缓存。",
-                    "progress",
-                )
+        self._log(f"FMP 实时请求: stock-peers {symbol}。", "progress")
+        response = httpx.get(
+            f"{self.base_url}/stock-peers",
+            params={**params, "apikey": self.api_key},
+            timeout=20.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
 
         raw_symbols: list[object] = []
         if isinstance(payload, list):
@@ -996,46 +963,10 @@ class FmpProvider(MarketDataProvider):
                 period.diluted_eps = matched_eps
 
     def _get_records(self, endpoint: str, params: dict[str, object]) -> list[dict]:
-        cache_key = self._cache_key(endpoint, params)
-        ttl_seconds = (
-            settings.fmp_peers_cache_ttl_seconds
-            if endpoint == "stock-peers"
-            else settings.fmp_cache_ttl_seconds
+        self._log(
+            f"FMP 实时请求: {endpoint} {self._describe_params(params)}。",
+            "progress",
         )
-
-        if settings.fmp_cache_enabled:
-            cached_payload = self.cache.get_json("fmp_api", cache_key, ttl_seconds)
-            if cached_payload is not None:
-                cached_error_message = self._cached_error_message(cached_payload)
-                if cached_error_message:
-                    self._log(
-                        f"FMP cache hit: {endpoint} {self._describe_params(params)}，{cached_error_message}",
-                        "warning",
-                    )
-                    return []
-                cached_records = self._normalize_records_payload(cached_payload)
-                if cached_records:
-                    self._log(
-                        f"FMP cache hit: {endpoint} {self._describe_params(params)}",
-                        "progress",
-                    )
-                else:
-                    self._log(
-                        f"FMP cache hit: {endpoint} {self._describe_params(params)}，缓存中暂无可解析结构化记录。",
-                        "progress",
-                    )
-                return cached_records
-
-        if settings.fmp_cache_enabled:
-            self._log(
-                f"FMP cache miss: {endpoint} {self._describe_params(params)}，正在请求实时数据。",
-                "progress",
-            )
-        else:
-            self._log(
-                f"FMP 实时请求: {endpoint} {self._describe_params(params)}。",
-                "progress",
-            )
 
         try:
             response = httpx.get(
@@ -1046,16 +977,6 @@ class FmpProvider(MarketDataProvider):
             response.raise_for_status()
             payload = response.json()
         except httpx.HTTPStatusError as exc:
-            status_code = exc.response.status_code if exc.response is not None else None
-            if settings.fmp_cache_enabled and status_code in {402, 403, 404}:
-                self.cache.set_json(
-                    "fmp_api",
-                    cache_key,
-                    self._build_error_cache_payload(
-                        status_code=status_code,
-                        message=str(exc),
-                    ),
-                )
             self._log(
                 f"FMP realtime fetch failed: {endpoint} {self._describe_params(params)} -> {exc.__class__.__name__}: {exc}",
                 "warning",
@@ -1067,20 +988,6 @@ class FmpProvider(MarketDataProvider):
                 "warning",
             )
             raise
-        if settings.fmp_cache_enabled:
-            self.cache.set_json("fmp_api", cache_key, payload)
-            payload_type = type(payload).__name__
-            if isinstance(payload, dict):
-                top_level_keys = ", ".join(sorted(str(key) for key in payload.keys())[:8])
-                payload_summary = f"type={payload_type}, keys=[{top_level_keys}]"
-            elif isinstance(payload, list):
-                payload_summary = f"type={payload_type}, len={len(payload)}"
-            else:
-                payload_summary = f"type={payload_type}"
-            self._log(
-                f"FMP realtime fetch complete: {endpoint} {self._describe_params(params)}，结果已写入缓存（{payload_summary}）。",
-                "progress",
-            )
         records = self._normalize_records_payload(payload)
         if not records:
             self._log(
@@ -1088,21 +995,6 @@ class FmpProvider(MarketDataProvider):
                 "warning",
             )
         return records
-
-    def _cache_key(self, endpoint: str, params: dict[str, object]) -> str:
-        normalized_params = {
-            str(key): value
-            for key, value in sorted(params.items(), key=lambda item: item[0])
-        }
-        return json.dumps(
-            {
-                "endpoint": endpoint,
-                "params": normalized_params,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
-        )
 
     def _describe_params(self, params: dict[str, object]) -> str:
         symbol = params.get("symbol")
@@ -1209,34 +1101,6 @@ class FmpProvider(MarketDataProvider):
             return None
         recent_values = values[-window:]
         return sum(recent_values) / len(recent_values)
-
-    @staticmethod
-    def _build_error_cache_payload(status_code: int | None, message: str) -> dict[str, object]:
-        return {
-            "__fmp_error__": {
-                "status_code": status_code,
-                "message": message,
-            }
-        }
-
-    @staticmethod
-    def _cached_error_message(payload: object) -> str | None:
-        if not isinstance(payload, dict):
-            return None
-
-        error = payload.get("__fmp_error__")
-        if not isinstance(error, dict):
-            return None
-
-        status_code = error.get("status_code")
-        message = str(error.get("message") or "").strip()
-        if status_code == 402:
-            return "当前 FMP 套餐不支持该端点，已使用本地失败缓存避免重复请求。"
-        if status_code in {403, 404}:
-            return f"该 FMP 端点当前不可用（HTTP {status_code}），已使用本地失败缓存避免重复请求。"
-        if message:
-            return f"该 FMP 请求此前失败，已使用本地失败缓存避免重复请求：{message}"
-        return "该 FMP 请求此前失败，已使用本地失败缓存避免重复请求。"
 
     @staticmethod
     def _normalize_records_payload(payload: object) -> list[dict]:
