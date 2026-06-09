@@ -7,7 +7,6 @@ from statistics import median
 from valuation_analysis.models import CompanyProfile, ForecastSnapshot, MarketSnapshot, PeerValuation
 from valuation_analysis.providers.base import MarketDataProvider
 from valuation_analysis.progress import ProgressCallback
-from valuation_analysis.repositories.universe import UniverseRepository
 from valuation_analysis.services.market_enrichment import (
     enrich_market_with_financial_history,
     enrich_market_with_forecast,
@@ -15,32 +14,20 @@ from valuation_analysis.services.market_enrichment import (
 
 
 class PeerAnalysisService:
-    MAX_SEC_CANDIDATES_TO_SCORE = 20
-    MAX_FALLBACK_CANDIDATES_TO_SCORE = 24
+    MAX_CANDIDATES_TO_SCORE = 24
     MAX_FINALISTS_TO_COMPARE = 10
     PROFILE_FETCH_WORKERS = 8
     DETAIL_FETCH_WORKERS = 3
     PROFILE_STAGE_TIMEOUT_SECONDS = 12
     DETAIL_STAGE_TIMEOUT_SECONDS = 18
 
-    def __init__(self, provider: MarketDataProvider, universe_repository: UniverseRepository) -> None:
+    def __init__(self, provider: MarketDataProvider) -> None:
         self.provider = provider
-        self.universe_repository = universe_repository
 
     def find_peer_candidates(self, target_symbol: str, profile: CompanyProfile) -> tuple[list[str], str]:
         peer_candidates = self.provider.get_peer_candidate_symbols(target_symbol, profile)
         candidate_source = self.provider.get_peer_candidate_source_label(profile)
-        if peer_candidates:
-            return peer_candidates, candidate_source
-
-        if not self.provider.allows_local_universe_fallback():
-            return [], candidate_source
-
-        universe = self.universe_repository.list_symbols()
-        return (
-            [symbol for symbol in universe if symbol.upper() != target_symbol.upper()],
-            "本地股票池候选",
-        )
+        return peer_candidates, candidate_source
 
     def build_peer_set(
         self,
@@ -63,17 +50,12 @@ class PeerAnalysisService:
         if not candidates:
             if progress_callback:
                 progress_callback(
-                    f"{candidate_source} 当前未返回可用候选公司，本次不再依赖额外本地候选池。",
-                    "warning",
-                )
+                f"{candidate_source} 当前未返回可用候选公司，本次不再依赖额外本地候选池。",
+                "warning",
+            )
             return []
 
-        if progress_callback and candidate_source == "SEC 同 SIC 候选池":
-            progress_callback(
-                f"为控制耗时，本次先并发评估前 {len(candidates)} 家 SEC 同 SIC 候选公司。",
-                "progress",
-            )
-        elif progress_callback and candidate_source == "FMP peers 候选池":
+        if progress_callback and candidate_source == "FMP peers 候选池":
             progress_callback(
                 "正在使用 FMP peers 候选代码，并逐个查询这些公司的 FMP 行业信息以完成同行匹配。",
                 "progress",
@@ -144,9 +126,11 @@ class PeerAnalysisService:
         qualified_profiles = threshold_qualified_profiles
 
         if candidate_source == "FMP peers 候选池":
-            industry_priority_profiles, sec_match_message, sec_match_level = self._filter_fmp_profiles_by_industry(
-                profile,
-                [candidate_profile for _, candidate_profile in finalists],
+            industry_priority_profiles, industry_match_message, industry_match_level = (
+                self._filter_fmp_profiles_by_industry(
+                    profile,
+                    [candidate_profile for _, candidate_profile in finalists],
+                )
             )
             qualified_profiles = self._fill_profiles_by_market_cap(
                 primary_profiles=industry_priority_profiles,
@@ -154,7 +138,7 @@ class PeerAnalysisService:
                 desired_count=peer_count,
             )
             if progress_callback:
-                progress_callback(sec_match_message, sec_match_level)
+                progress_callback(industry_match_message, industry_match_level)
         else:
             qualified_profiles = threshold_qualified_profiles
 
@@ -214,12 +198,7 @@ class PeerAnalysisService:
         return peers
 
     def _limit_candidates(self, candidates: list[str], candidate_source: str) -> list[str]:
-        limit = (
-            self.MAX_SEC_CANDIDATES_TO_SCORE
-            if candidate_source == "SEC 同 SIC 候选池"
-            else self.MAX_FALLBACK_CANDIDATES_TO_SCORE
-        )
-        return candidates[:limit]
+        return candidates[: self.MAX_CANDIDATES_TO_SCORE]
 
     @staticmethod
     def _matching_basis(profile: CompanyProfile) -> str:

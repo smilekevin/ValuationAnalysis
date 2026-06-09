@@ -13,7 +13,6 @@ from valuation_analysis.models import (
 )
 from valuation_analysis.providers.base import MarketDataProvider
 from valuation_analysis.progress import ProgressCallback
-from valuation_analysis.repositories.universe import UniverseRepository
 from valuation_analysis.services.market_enrichment import (
     enrich_market_with_financial_history,
     enrich_market_with_forecast,
@@ -27,9 +26,9 @@ class ValuationService:
     EARNINGS_EVENT_LIMIT = 10
     PRICE_SIMULATION_PE_MAX = 100
 
-    def __init__(self, provider: MarketDataProvider, universe_repository: UniverseRepository) -> None:
+    def __init__(self, provider: MarketDataProvider) -> None:
         self.provider = provider
-        self.peer_service = PeerAnalysisService(provider, universe_repository)
+        self.peer_service = PeerAnalysisService(provider)
 
     def analyze_company(
         self,

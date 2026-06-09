@@ -19,6 +19,7 @@ from valuation_analysis.models import (
     ValuationHistoryPoint,
     ValuationHistorySnapshot,
 )
+from valuation_analysis.providers.base import MarketDataProvider
 from valuation_analysis.progress import ProgressCallback
 
 
@@ -58,7 +59,7 @@ def _growth_rate(current: float | None, baseline: float | None) -> float | None:
     return (current - baseline) / abs(baseline)
 
 
-class FmpProvider:
+class FmpProvider(MarketDataProvider):
     def __init__(self) -> None:
         self.api_key = settings.fmp_api_key.strip()
         self.base_url = settings.fmp_base_url.rstrip("/")
@@ -68,7 +69,7 @@ class FmpProvider:
 
     @property
     def enabled(self) -> bool:
-        return settings.fmp_enabled and bool(self.api_key)
+        return bool(self.api_key)
 
     def set_progress_callback(self, progress_callback: ProgressCallback | None) -> None:
         self.progress_callback = progress_callback
@@ -878,11 +879,17 @@ class FmpProvider:
             revenue_growth=_growth_rate(next_year_revenue, current_year_revenue),
         )
 
-    def get_peer_candidate_symbols(self, symbol: str, limit: int = 50) -> list[str]:
+    def get_peer_candidate_symbols(
+        self,
+        target_symbol: str,
+        profile: CompanyProfile | None = None,
+        limit: int = 50,
+    ) -> list[str]:
         if not self.enabled:
             return []
 
-        params = {"symbol": symbol.upper()}
+        symbol = target_symbol.upper()
+        params = {"symbol": symbol}
         cache_key = self._cache_key("stock-peers", params)
         payload: object | None = None
 
@@ -893,17 +900,17 @@ class FmpProvider:
                 settings.fmp_peers_cache_ttl_seconds,
             )
             if payload is not None:
-                self._log(f"FMP cache hit: stock-peers {symbol.upper()}", "progress")
+                self._log(f"FMP cache hit: stock-peers {symbol}", "progress")
 
         if payload is None:
             if settings.fmp_cache_enabled:
                 self._log(
-                    f"FMP cache miss: stock-peers {symbol.upper()}，正在请求实时数据。",
+                    f"FMP cache miss: stock-peers {symbol}，正在请求实时数据。",
                     "progress",
                 )
             else:
                 self._log(
-                    f"FMP 实时请求: stock-peers {symbol.upper()}。",
+                    f"FMP 实时请求: stock-peers {symbol}。",
                     "progress",
                 )
             response = httpx.get(
@@ -916,7 +923,7 @@ class FmpProvider:
             if settings.fmp_cache_enabled:
                 self.cache.set_json("fmp_api", cache_key, payload)
                 self._log(
-                    f"FMP realtime fetch complete: stock-peers {symbol.upper()}，结果已写入缓存。",
+                    f"FMP realtime fetch complete: stock-peers {symbol}，结果已写入缓存。",
                     "progress",
                 )
 
@@ -934,11 +941,14 @@ class FmpProvider:
                 candidate = str(value.get("symbol") or "").strip().upper()
             else:
                 candidate = str(value).strip().upper()
-            if not candidate or candidate == symbol.upper():
+            if not candidate or candidate == symbol:
                 continue
             if candidate not in symbols:
                 symbols.append(candidate)
         return symbols[:limit]
+
+    def get_peer_candidate_source_label(self, profile: CompanyProfile) -> str:
+        return "FMP peers 候选池"
 
     def _get_first_record(self, endpoint: str, params: dict[str, object]) -> dict:
         records = self._get_records(endpoint, params)

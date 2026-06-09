@@ -58,6 +58,3 @@ class MarketDataProvider(ABC):
 
     def set_progress_callback(self, progress_callback: ProgressCallback | None) -> None:
         return None
-
-    def allows_local_universe_fallback(self) -> bool:
-        return True

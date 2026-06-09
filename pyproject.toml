@@ -11,11 +11,12 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0,<1.0.0",
   "httpx>=0.28.0,<1.0.0",
-  "pandas>=2.2.0,<3.0.0",
   "pydantic-settings>=2.3.0,<3.0.0",
   "uvicorn>=0.30.0,<1.0.0",
-  "yfinance>=0.2.54,<1.0.0",
 ]
+
+[project.scripts]
+valuation-analysis = "valuation_analysis.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

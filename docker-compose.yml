@@ -1,0 +1,18 @@
+services:
+  valuation-analysis:
+    build: .
+    environment:
+      APP_NAME: ${APP_NAME:-US Equity Valuation Analyzer}
+      APP_ENV: ${APP_ENV:-production}
+      FMP_API_KEY: ${FMP_API_KEY:-}
+      FMP_BASE_URL: ${FMP_BASE_URL:-https://financialmodelingprep.com/stable}
+      CACHE_DIR: ${CACHE_DIR:-.cache}
+      FMP_CACHE_ENABLED: ${FMP_CACHE_ENABLED:-false}
+      FMP_CACHE_TTL_SECONDS: ${FMP_CACHE_TTL_SECONDS:-43200}
+      FMP_PEERS_CACHE_TTL_SECONDS: ${FMP_PEERS_CACHE_TTL_SECONDS:-86400}
+      APP_ACCESS_TOKEN: ${APP_ACCESS_TOKEN:-}
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ${CACHE_HOST_PATH:-./.cache}:/app/.cache
+    restart: unless-stopped

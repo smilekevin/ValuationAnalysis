@@ -15,17 +15,15 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from valuation_analysis.config import settings
-from valuation_analysis.providers.composite import CompositeMarketDataProvider
-from valuation_analysis.repositories.universe import UniverseRepository
+from valuation_analysis.providers.fmp import FmpProvider
 from valuation_analysis.services.valuation import ValuationService
 
 
 app = FastAPI(title=settings.app_name)
 web_dir = Path(__file__).resolve().parent / "web"
 
-provider = CompositeMarketDataProvider()
-universe_repository = UniverseRepository(settings.default_peer_universe_path)
-valuation_service = ValuationService(provider, universe_repository)
+provider = FmpProvider()
+valuation_service = ValuationService(provider)
 
 app.mount("/static", StaticFiles(directory=web_dir), name="static")
 
