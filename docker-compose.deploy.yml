@@ -1,0 +1,14 @@
+services:
+  valuation-analysis:
+    image: ghcr.io/smilekevin/valuationanalysis:v0.0.1
+    pull_policy: always
+    environment:
+      APP_NAME: US Equity Valuation Analyzer
+      APP_ENV: production
+      FMP_API_KEY: ""
+      FMP_BASE_URL: https://financialmodelingprep.com/stable
+      FMP_MAX_WORKERS: "4"
+      APP_ACCESS_TOKEN: ""
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

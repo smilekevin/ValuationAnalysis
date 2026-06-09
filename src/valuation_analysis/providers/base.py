@@ -23,7 +23,12 @@ class MarketDataProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_financial_history(self, symbol: str, limit: int = 8) -> list[FinancialPeriod]:
+    def get_financial_history(
+        self,
+        symbol: str,
+        limit: int = 8,
+        execution: EarningsExecutionMetrics | None = None,
+    ) -> list[FinancialPeriod]:
         raise NotImplementedError
 
     @abstractmethod

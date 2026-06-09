@@ -6,6 +6,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       FMP_API_KEY: ${FMP_API_KEY:-}
       FMP_BASE_URL: ${FMP_BASE_URL:-https://financialmodelingprep.com/stable}
+      FMP_MAX_WORKERS: ${FMP_MAX_WORKERS:-4}
       APP_ACCESS_TOKEN: ${APP_ACCESS_TOKEN:-}
     ports:
       - "${PORT:-8000}:8000"
