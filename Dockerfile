@@ -10,11 +10,9 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-COPY env.example ./env.example
 
 RUN pip install --upgrade pip setuptools wheel \
     && pip install --no-build-isolation -e . \
-    && mkdir -p /app/.cache \
     && chown -R appuser:appuser /app
 
 USER appuser
