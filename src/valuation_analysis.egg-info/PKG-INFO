@@ -6,194 +6,54 @@ Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: fastapi<1.0.0,>=0.115.0
 Requires-Dist: httpx<1.0.0,>=0.28.0
-Requires-Dist: pandas<3.0.0,>=2.2.0
 Requires-Dist: pydantic-settings<3.0.0,>=2.3.0
 Requires-Dist: uvicorn<1.0.0,>=0.30.0
-Requires-Dist: yfinance<1.0.0,>=0.2.54
 
 # 美股估值分析器
 
-这是一个从零搭建的 MVP 后端，目标是支持以下核心能力：
+这是一个 FastAPI + 单页前端的美股估值分析服务。当前版本统一使用 FMP 作为数据源，避免不同来源之间口径不一致。
 
-- 抓取公司最新股价与基础资料
-- 抓取 SEC 历史财务报表与未来预期
-- 计算 `Trailing P/E`、`Forward P/E`、PEG、收益率等估值指标
-- 获取公司行业细分，并动态筛选同行公司
-- 比较同行估值水平，判断目标公司相对高估/低估
-- 基于历史财报数据评估财报达成率（当前 MVP 重点支持 EPS surprise）
-- 输出一份结构化价值评估结果
+## 配置方式
 
-## 技术设计
+服务默认只读取进程环境变量，不会自动读取 `.env`。如果要从文件读取配置，请显式使用 `--env-file`。
 
-项目采用分层结构，便于之后切换数据源或继续演进前端：
+```bash
+FMP_API_KEY=your_fmp_api_key
+APP_ACCESS_TOKEN=
+CACHE_DIR=.cache
+FMP_CACHE_ENABLED=false
+```
 
-- `providers/`: 数据抓取层，当前默认使用 `FMP + Yahoo + SEC`
-- `services/`: 业务计算层，包括估值、同行比较、财报达成率
-- `api.py`: FastAPI 接口
-- `web/`: 单页前端仪表盘
-- `data/seed/`: 启动用的股票池，仅作为同行候选兜底
-
-## 快速启动
+## 本地启动
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
+export FMP_API_KEY=your_fmp_api_key
+valuation-analysis --reload
+```
+
+如果想用配置文件：
+
+```bash
 cp env.example .env
-uvicorn --app-dir src valuation_analysis.api:app --reload
+valuation-analysis --env-file .env --reload
 ```
 
-建议把 `.env` 里的 `SEC_API_USER_AGENT` 改成你自己的联系邮箱格式，例如：
+## Docker 部署
+
+默认从宿主机环境变量读取配置：
 
 ```bash
-SEC_API_USER_AGENT=ValuationAnalysis/0.1 your-email@example.com
+export FMP_API_KEY=your_fmp_api_key
+export APP_ACCESS_TOKEN=change_me_to_a_long_random_token
+docker compose up --build -d
 ```
 
-这是因为 SEC 的 `data.sec.gov` 接口要求自动化访问带上合理的 `User-Agent` 标识。
-
-默认配置就是优先使用 FMP。如果你已经有 key，建议配置：
+如果要使用环境变量文件：
 
 ```bash
-FMP_ENABLED=true
-FMP_API_KEY=your_fmp_api_key
+cp env.example .env
+docker compose --env-file .env up --build -d
 ```
-
-如果你想单独测试“历史财报只从 FMP 抓”，可以再加：
-
-```bash
-FINANCIAL_HISTORY_SOURCE=fmp_only
-```
-
-可选值：
-
-- `auto`: FMP 优先，缺口再回退到 Yahoo / SEC
-- `fmp_only`: 历史财报只用 FMP
-- `yahoo_sec`: 完全回退到旧的 Yahoo / SEC 逻辑
-
-当前项目也支持本地持久化缓存，但默认关闭，避免在调试或升级套餐后继续读旧缓存：
-
-```bash
-CACHE_DIR=.cache
-FMP_CACHE_ENABLED=false
-FMP_CACHE_TTL_SECONDS=43200
-FMP_PEERS_CACHE_TTL_SECONDS=86400
-```
-
-含义是：
-
-- `FMP_CACHE_TTL_SECONDS`: FMP 财报、财报事件、分析师预期等数据缓存 12 小时
-- `FMP_PEERS_CACHE_TTL_SECONDS`: FMP peers 候选缓存 24 小时
-
-缓存文件会落在本地 `.cache/fmp_api/` 下，服务重启后仍然可复用。
-
-当前默认数据源策略是：
-
-- `FMP`: 公司画像、市场快照、历史季度财报、财报事件、分析师预期、同行候选主源
-- `Yahoo`: 行情均线、部分前瞻估值字段、财报事件 fallback
-- `SEC`: 官方财报与行业细分兜底
-
-如果你把 `FMP_ENABLED=false`，系统会回退到 `Yahoo + SEC` 逻辑。
-
-如果你希望同行候选优先来自 SEC `SIC` 行业索引，建议先离线构建本地索引：
-
-```bash
-python3 scripts/build_sec_sic_index.py
-```
-
-这个脚本会下载 SEC 官方 `submissions.zip`，生成本地缓存到 `.cache/sec_sic_index.json`。
-网页分析接口本身不会在请求链路里下载这份 bulk 数据；如果本地索引不存在，系统会自动回退到本地股票池候选。
-
-启动后可以访问：
-
-- `GET /`
-- `GET /health`
-- `GET /analyze/AAPL`
-- `GET /analyze-stream/AAPL`
-- `GET /analyze/MSFT?peer_count=6`
-
-其中 `/` 是网页分析器首页，支持输入股票代码后直接调用后端 API 渲染估值结果。
-首页现在也会通过流式接口展示抓取进度日志，例如公司资料、市场数据、历史财务、未来预期和同行比较正在执行到哪一步。
-
-如果你没有先执行 `pip install -e .`，也可以直接用 `--app-dir src` 启动。因为这个项目使用的是 `src/` 目录布局，直接运行 `uvicorn valuation_analysis.api:app` 时，Python 默认不会自动把 `src` 加进模块搜索路径。
-
-## 输出内容
-
-网页仪表盘当前展示：
-
-- 公司画像：名称、行业、板块、市值
-- 估值评分：估值 / 执行 / 成长三个维度
-- 市场快照：价格、P/E、PEG、EV/EBITDA、52 周区间
-- 未来预期：本年/明年 EPS 与收入、增长率
-- 财报达成率：beat rate、平均 surprise、近期财报事件
-- 同行对比表与季度财务摘要
-
-`/analyze/{symbol}` API 当前会返回：
-
-- 公司基础资料：名称、行业、板块、市值、币种
-- 最新市场数据：股价、52 周区间、估值倍数
-- 历史财报摘要：收入、净利润、稀释 EPS
-- 未来预期：收入增速、EPS 增速、未来 EPS
-- 同行业可比公司及其估值指标
-- 财报达成率：EPS beat/miss 次数、平均 surprise
-- 综合价值结论：估值评分、执行评分、成长评分、文字结论
-
-## 设计说明
-
-### 1. 同行获取策略
-
-当前版本优先使用 `FMP peers` 作为同行候选来源，并对这些候选股票代码逐个查询 `SEC SIC` 行业细分：
-
-- 优先调用 FMP `stock-peers`
-- 若 FMP peers 中存在和目标公司 `SEC SIC` 完全一致的公司，优先保留这些公司
-- 若 FMP peers 中没有 `SEC SIC` 完全匹配的公司，则改为按 Yahoo 市值优先选行业相关龙头
-- 若未配置 FMP，则才回到 `SEC SIC / 本地股票池` 的旧兜底逻辑
-
-本地索引通过 `python3 scripts/build_sec_sic_index.py` 构建，缓存文件位于项目根目录下的 `.cache/sec_sic_index.json`。
-
-这样可以在不依赖额外付费 API 的情况下，尽量按更细的官方行业分类来找 competitor。后续建议接入更稳定的专业数据源，用于：
-
-- 更完整 peers 列表
-- 分析师一致预期
-- 历史 revenue surprise
-- 更长周期财报与估值时间序列
-
-### 2. 财务与财报达成率
-
-当前优先使用 FMP：
-
-- `income-statement` 作为历史季度财报主源
-- `earnings` 作为历史财报事件与 EPS surprise 主源
-- `analyst-estimates` 作为未来预期补充源
-
-当 FMP 缺失或未配置时，再回退到 `Yahoo / SEC`。当前财报达成率主要计算：
-
-- 有 estimate 的财报次数
-- Beat rate
-- 平均 surprise %
-
-这足以作为“管理层兑现预期能力”的第一版量化指标。
-
-### 3. 价值评估逻辑
-
-综合考虑三类信号：
-
-- 相对估值：目标公司 `Forward P/E` 对比同行中位数
-- 成长性：未来 EPS 增速、收入增速
-- 执行力：历史 EPS beat rate
-
-最终给出：
-
-- `Undervalued`
-- `Fairly Valued`
-- `Richly Valued`
-
-## 下一步建议
-
-如果要把它做成更完整产品，推荐继续补这几块：
-
-1. 接入专业数据源（如 Polygon / Alpha Vantage / Finnhub / FMP）
-2. 增加 DCF、相对估值篮子、情景分析
-3. 增加 DCF、历史估值分位、Bull/Base/Bear 情景分析
-4. 增加任务调度和本地缓存
-5. 增加数据库保存历史分析结果
-6. 将静态前端升级为 React/Vue 仪表盘
